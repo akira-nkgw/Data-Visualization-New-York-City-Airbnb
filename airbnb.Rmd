@@ -1,0 +1,1083 @@
+---
+title: "Final Project: AirBnB New York City Analysis"
+author: "Akira Nakagawa"
+date: ""   
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+---
+
+```{r message = FALSE}
+# -- Clear environment of variables and functions------------------
+rm(list = ls(all = TRUE)) 
+
+# Clear environmet of packages
+if(is.null(sessionInfo()$otherPkgs) == FALSE)lapply(paste("package:", names(sessionInfo()$otherPkgs), sep=""), detach, character.only = TRUE, unload = TRUE)
+
+# -- Load packages ---------------------------------------
+library(tidyverse)
+library(gridExtra)
+library(janitor)
+library(knitr)
+library(GGally)
+library(MultinomialCI)
+library(htmlTable)
+library(Hmisc)
+library(formattable)
+library(rms)
+library(MultNonParam)
+library(inspectdf)
+library(DataExplorer)
+library(leaflet)
+library(ggmap)
+ggmap::register_google(key = "AIzaSyDanbharxh0M9j1axst7NGeS1OnSXUf9WY")
+library(htmltools)
+library(colorspace)
+
+
+library(readr)
+fp <- read_csv("AB_NYC_2019.csv")
+
+# make them factor variables
+fp$id <- factor(fp$id)
+fp$name <- factor(fp$name)
+fp$host_id <- factor(fp$host_id)
+fp$host_name <- factor(fp$host_name)
+fp$neighbourhood_group <- factor(fp$neighbourhood_group)
+fp$neighbourhood <- factor(fp$neighbourhood)
+fp$room_type <- factor(fp$room_type)
+
+# delete inactivated housing list
+inactivated <- fp[ which(fp$price == 0 | fp$availability_365 == 0),]
+fp <- subset(fp, fp$price > 0)
+fp <- subset(fp, fp$availability_365 > 0)
+# fp <- subset(fp, fp$price < 1500) # get rid of expensive data
+
+# Add column "Listing history"
+fp$list_history <- fp$number_of_reviews / fp$reviews_per_month 
+
+# convert na values to 0s 
+fp$reviews_per_month[is.na(fp$reviews_per_month)] <- 0
+
+# create min_spend 
+fp$min_spend <- fp$price * fp$minimum_nights
+
+# delete id and host_id
+delete <- c("id", "host_id")
+fp[delete] <- NULL
+
+# create borough area
+manhattan <- subset(fp, fp$neighbourhood_group == "Manhattan")
+brooklyn <- subset(fp, fp$neighbourhood_group == "Brooklyn")
+bronx <- subset(fp, fp$neighbourhood_group == "Bronx")
+queens <- subset(fp, fp$neighbourhood_group == "Queens")
+staten <- subset(fp, fp$neighbourhood_group == "Staten Island")
+
+```
+<h2>Uni-variate non-graphical EDA</h2>
+```{r message = FALSE, warning = FALSE}
+# to look at the data 
+head(fp)
+```
+<h4>Comments</h4>
+<div>
+- Some last_review does not have value - assuming there is no review for those rows
+</div>
+
+```{r message = FALSE, warning = FALSE}
+# to see how many observations, variables, types etc
+str(fp)
+```
+<h4>Comments</h4>
+<div>
+- negative longitude means West of the Prime Meridian
+</div>
+```{r}
+summary(fp)
+```
+<h4>Comments</h4>
+<div>
+- categorical variables: neighbourhood_group, neighbourhood, room_type
+- numerical variables: latitude, longtitude, price, minimum_nights, number_of_reviews, reviews_per_month,  calculated_host_listings_count, availability_365, list_history
+- last_review: it has many NA values, it may be removed
+- Most popular neighbourhood: Brooklyn(Williamsburg,Bedford-Stuyvesant, Bushwick), Manhattan (Harlem, Upper West Side, Hell's Kitchen)
+</div>
+
+<h2>Uni-variate graphical EDA</h2>
+<h3>Categorical</h3>
+All New York City
+```{r}
+grid.arrange(
+# neighbourhood_group
+ggplot(data = fp, mapping = aes(x = neighbourhood_group)) +
+  geom_bar(),
+# neighbourhood
+ggplot(data = fp, mapping = aes(x = neighbourhood)) +
+  geom_bar(),
+# room_type
+ggplot(data = fp, mapping = aes(x = room_type)) +
+  geom_bar(),
+ncol = 1)
+```
+Manhattan
+```{r}
+# Manhattan
+grid.arrange(
+# neighbourhood
+ggplot(data = manhattan, mapping = aes(x = neighbourhood)) +
+  coord_flip() +
+  geom_bar(),
+# room_type
+ggplot(data = manhattan, mapping = aes(x = room_type)) +
+  geom_bar(),
+ncol = 2 )
+```
+Brooklyn
+```{r}
+# brooklyn
+grid.arrange(
+# neighbourhood
+ggplot(data = brooklyn, mapping = aes(x = neighbourhood)) +
+  coord_flip() +
+  geom_bar(),
+# room_type
+ggplot(data = brooklyn, mapping = aes(x = room_type)) +
+  geom_bar(),
+ncol = 2 )
+```
+Bronx
+```{r}
+# brooklyn
+grid.arrange(
+# neighbourhood
+ggplot(data = bronx, mapping = aes(x = neighbourhood)) +
+  coord_flip() +
+  geom_bar(),
+# room_type
+ggplot(data = bronx, mapping = aes(x = room_type)) +
+  geom_bar(),
+ncol = 2 )
+```
+Staten island
+```{r}
+# brooklyn
+grid.arrange(
+# neighbourhood
+ggplot(data = staten, mapping = aes(x = neighbourhood)) +
+  coord_flip() +
+  geom_bar(),
+# room_type
+ggplot(data = staten, mapping = aes(x = room_type)) +
+  geom_bar(),
+ncol = 2 )
+```
+
+Frequency of categorical variables
+```{r}
+fp %>% 
+  inspect_cat() %>% 
+  show_plot()
+```
+<h4>Comments</h4> 
+<div>
+- Surprisingly, Manhattan has many Entire home/apt than any other parts of NYC.
+- Brooklyn has almost the same amount of Entire home/apt and private room
+- Bronx and Queens have more private room than Entire home/apt
+- There are popular neighbour
+</div>
+
+<h3>Quantative</h3>
+<h4>price</h4>
+All NYC
+```{r message = FALSE, warning = FALSE}
+grid.arrange(
+ggplot(data = fp, mapping = aes(x = price)) + 
+    geom_histogram(),
+ggplot(data = fp, mapping = aes(x = 1)) + 
+    geom_boxplot(mapping = aes(y = price)) +
+    coord_flip(), 
+ncol = 1 )
+```
+<h4>Comments</h4> 
+<div>
+- Skewed
+</div>
+
+<h4>minimum_nights</h4>
+```{r message = FALSE, warning = FALSE}
+grid.arrange(
+# Create histogram
+ggplot(data = fp, mapping = aes(x = minimum_nights)) + 
+    geom_histogram(),
+
+# Add boxplot
+ggplot(data = fp, mapping = aes(x = 1)) + 
+    geom_boxplot(mapping = aes(y = minimum_nights)) +
+    coord_flip(), # use to have same x-axis on both graphs
+
+# Set number of columns in grid.arrange
+ncol = 1 )
+```
+<h4>Comments</h4> 
+<div>
+- Skewed
+</div>
+
+<h4>number_of_reviews</h4>
+```{r message = FALSE, warning = FALSE}
+grid.arrange(
+ggplot(data = fp, mapping = aes(x = number_of_reviews)) + 
+    geom_histogram(),
+ggplot(data = fp, mapping = aes(x = 1)) + 
+    geom_boxplot(mapping = aes(y = number_of_reviews)) +
+    coord_flip(), # use to have same x-axis on both graphs
+ncol = 1 )
+```
+<h4>Comments</h4> 
+<div>
+- Skewed
+</div>
+
+<h4>reviews_per_month</h4>
+```{r message = FALSE, warning = FALSE}
+grid.arrange(
+# Create histogram
+ggplot(data = fp, mapping = aes(x = reviews_per_month)) + 
+    geom_histogram(),
+
+# Add boxplot
+ggplot(data = fp, mapping = aes(x = 1)) + 
+    geom_boxplot(mapping = aes(y = reviews_per_month)) +
+    coord_flip(), # use to have same x-axis on both graphs
+
+# Set number of columns in grid.arrange
+ncol = 1 )
+```
+<h4>Comments</h4> 
+<div>
+- Skewed
+</div>
+
+<h4>calculated_host_listings_count</h4>
+```{r message = FALSE, warning = FALSE}
+grid.arrange(
+# Create histogram
+ggplot(data = fp, mapping = aes(x = calculated_host_listings_count)) + 
+    geom_histogram(),
+
+# Add boxplot
+ggplot(data = fp, mapping = aes(x = 1)) + 
+    geom_boxplot(mapping = aes(y = calculated_host_listings_count)) +
+    coord_flip(), # use to have same x-axis on both graphs
+
+# Set number of columns in grid.arrange
+ncol = 1 )
+```
+<h4>Comments</h4> 
+<div>
+- Skewed
+</div>
+
+<h4>availability_365</h4>
+```{r message = FALSE, warning = FALSE}
+grid.arrange(
+# Create histogram
+ggplot(data = fp, mapping = aes(x = availability_365)) + 
+    geom_histogram(),
+
+# Add boxplot
+ggplot(data = fp, mapping = aes(x = 1)) + 
+    geom_boxplot(mapping = aes(y = availability_365)) +
+    coord_flip(), # use to have same x-axis on both graphs
+
+# Set number of columns in grid.arrange
+ncol = 1 )
+```
+<h4>Comments</h4> 
+<div>
+- Skewed
+</div>
+
+
+<h4>list_history</h4>
+```{r message = FALSE, warning = FALSE}
+grid.arrange(
+# Create histogram
+ggplot(data = fp, mapping = aes(x = list_history)) + 
+    geom_histogram(),
+
+# Add boxplot
+ggplot(data = fp, mapping = aes(x = 1)) + 
+    geom_boxplot(mapping = aes(y = list_history)) +
+    coord_flip(), # use to have same x-axis on both graphs
+
+# Set number of columns in grid.arrange
+ncol = 1 )
+```
+<h4>Comments</h4> 
+<div>
+- Skewed
+- Many airbnb housing/room has been recently added (less than 3 years)
+</div>
+Show all numerical variables
+```{r}
+# Distribution of numeric variable 
+fp %>% 
+  inspect_num() %>% 
+  show_plot()
+```
+<h4>Questions</h4> 
+<div>
+- It is hard to see the detail of price because there are some huge outliers
+</div>
+
+
+<h2>Multi-variate non-graphical</h2>
+<h3>Categorical</h3>
+neighbourhood_group & room_type
+```{r}
+fp %>% 
+  tabyl(neighbourhood_group, room_type) %>% # creates table of counts
+  adorn_totals(where = c("row", "col")) # Total margins
+```
+```{r}
+fp %>% 
+  tabyl(neighbourhood_group, room_type) %>% 
+  adorn_totals(where = c("row", "col")) %>% 
+  adorn_percentages(denominator = "all") %>% # creates proportions
+  adorn_rounding(2) # round decimals
+```
+<h4>Comments</h4> 
+<div>
+- 
+</div>
+
+
+neighbourhood & room_type
+Manhattan
+```{r}
+# 
+fp %>% 
+  tabyl(neighbourhood, room_type) %>% # creates table of counts
+  adorn_totals(where = c("row", "col")) # Total margins
+```
+```{r}
+fp %>% 
+  tabyl(neighbourhood, room_type) %>% 
+  adorn_totals(where = c("row", "col")) %>% 
+  adorn_percentages(denominator = "all") %>% # creates proportions
+  adorn_rounding(2) # round decimals
+```
+<h4>Comments</h4> 
+<div>
+- some neighbourhood has less than 30 observations
+- Because most neighborhood has less than 1%, it is probably better to use neighbourhood_group instead, or just use most popular places for analysis
+</div>
+
+
+neighbourhood & neighbourhood_group
+```{r}
+fp %>% 
+  tabyl(neighbourhood, neighbourhood_group) %>% # creates table of counts
+  adorn_totals(where = c("row", "col")) # Total margins
+```
+
+```{r}
+fp %>% 
+  tabyl(neighbourhood, neighbourhood_group) %>% 
+  adorn_totals(where = c("row", "col")) %>% 
+  adorn_percentages(denominator = "all") %>% # creates proportions
+  adorn_rounding(2) # round decimals
+```
+<h4>Comments</h4> 
+<div>
+- There are too many neighbourhood, so the proportion for each neighbourhood is less than 1%
+</div>
+
+
+<h3>Quantitative</h3>
+```{r message = FALSE, warning = FALSE}
+# Correlation table
+fp %>% 
+  select_if(is.numeric) %>% # Use to select just the numeric variables
+  cor() %>% 
+  round(2) %>% 
+  kable()
+
+
+fp %>% 
+  inspect_cor() %>% 
+  show_plot()
+```
+<h4>Comments</h4> 
+<div>
+- calculated_host_listings_count and availability_365 has some correlations
+- number_of_reviews and availability_365 has some correlations
+</div>
+<h4>Questions</h4> 
+<div>
+- 
+</div>
+
+<h2>Multi-variate graphical</h4>
+<h3>Categorical</h3>
+```{r}
+grid.arrange(
+  # neighbourhood_group and room_type
+  fp %>% 
+    ggplot(mapping = aes(x = neighbourhood_group, fill = room_type)) + 
+      geom_bar(position = "dodge"),
+ncol = 1
+)
+```
+```{r}
+grid.arrange(
+  fp %>% 
+    ggplot(mapping = aes(x = neighbourhood_group, fill = room_type)) + 
+      geom_bar(position = "dodge") +
+      coord_flip(),
+  fp %>% 
+    ggplot(mapping = aes(x = neighbourhood_group, fill = room_type)) +
+      geom_bar(position = "fill") +
+      coord_flip(),
+ncol = 1
+)
+```
+<h4>Comments</h4> 
+<div>
+- 
+</div>
+
+```{r}
+fp %>%
+  group_by(neighbourhood_group, room_type) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(neighbourhood_group, room_type)) + 
+  geom_tile(aes(fill = count))
+
+```
+<h4>Comments</h4> 
+<div>
+- 
+</div>
+<h4>Questions</h4> 
+<div>
+- 
+</div>
+
+<h3>Quantitative</h3> 
+```{r}
+# price and minimum_nights
+fp %>% 
+  ggplot(mapping = aes(x = price, y = minimum_nights)) +
+  geom_point()
+```
+<h4>Comments</h4> 
+<div>
+- It seems they do not have any relationship
+</div>
+
+
+```{r}
+# price and number_of_reviews
+fp %>% 
+  ggplot(mapping = aes(x = price, y = number_of_reviews)) +
+  geom_point()
+```
+<h4>Comments</h4> 
+<div>
+- It seems they do not have any relationship
+</div>
+
+```{r}
+# price and reviews_per_month
+fp %>% 
+  ggplot(mapping = aes(x = price, y = reviews_per_month)) +
+  geom_point()
+```
+<h4>Comments</h4> 
+<div>
+- This may have more relationship than number of total review and price
+</div>
+
+
+```{r}
+# price and availability_365
+fp %>% 
+  ggplot(mapping = aes(x = price, y = availability_365)) +
+  geom_point()
+```
+<h4>Comments</h4> 
+<div>
+- This may have relationship
+</div>
+
+```{r}
+# calculated_host_listings_count and availability_365
+fp %>% 
+  ggplot(mapping = aes(x = calculated_host_listings_count, y = availability_365)) +
+  geom_point()
+```
+<h4>Comments</h4> 
+<div>
+- This may have relationship
+</div>
+
+```{r}
+# calculated_host_listings_count and minimum_nights
+fp %>% 
+  ggplot(mapping = aes(x = calculated_host_listings_count, y = minimum_nights)) +
+  geom_point()
+```
+<h4>Comments</h4> 
+<div>
+- This may have relationship
+</div>
+
+```{r}
+# longitude and latitude
+fp %>% 
+  ggplot(mapping = aes(x = longitude, y = latitude)) +
+  geom_point()
+```
+<h4>Comments</h4> 
+<div>
+- Definitely the map of new york city
+- Some places does not have any listing
+</div>
+
+
+<h3>Categorical and quantitative</h3> 
+
+```{r warning = FALSE, message = FALSE}
+fp %>%
+  select(neighbourhood_group, room_type, price, minimum_nights, number_of_reviews, reviews_per_month, calculated_host_listings_count, availability_365) %>%
+  ggpairs()
+
+# Correlation of variables 
+fp %>% 
+  plot_correlation(maxcat = 5L)
+
+```
+
+<h4>Comments</h4> 
+<div>
+- Looking more closely 
+  - neighbourhood_group / top neighbourhood of the group with other variables
+  - 
+</div>
+
+
+```{r message = FALSE, warning = FALSE}
+# minimum_nights, price and neighbourhood_group
+fp %>% 
+    ggplot(mapping = aes(x = minimum_nights, y = price, color = neighbourhood_group)) +
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE)
+
+# availability_365, price and neighbourhood_group
+fp %>% 
+    ggplot(mapping = aes(x = availability_365, y = price, color = neighbourhood_group)) +
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE)
+
+# reviews_per_month, price and neighbourhood_group
+fp %>% 
+    ggplot(mapping = aes(x = reviews_per_month, y = number_of_reviews, color = neighbourhood_group)) +
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE)
+
+# availability_365, calculated_host_listings_count and neighbourhood_group
+fp %>% 
+    ggplot(mapping = aes(x = availability_365, y = calculated_host_listings_count, color = neighbourhood_group)) +
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE)
+
+```
+<h4>Comments</h4> 
+<div>
+- Almost all neighbourhood_group have the similar correlation pattern
+- Manhattan has more correlation with availability_365 and calculated_host_listings_count
+</div>
+
+
+```{r}
+grid.arrange(
+  # neighbourhood_group and price
+  fp %>% 
+    ggplot(mapping = aes(x = neighbourhood_group, y = price)) +
+      geom_boxplot(),
+  # room_type and price
+  fp %>% 
+    ggplot(mapping = aes(x = room_type, y = price)) +
+      geom_boxplot(),
+  # neighbourhood_group and minimum_nights
+  fp %>% 
+    ggplot(mapping = aes(x = neighbourhood_group, y = minimum_nights)) +
+      geom_boxplot(),
+  # room_type and minimum_nights
+  fp %>% 
+    ggplot(mapping = aes(x = room_type, y = minimum_nights)) +
+      geom_boxplot(),
+  
+  # neighbourhood_group and number_of_reviews
+  fp %>% 
+    ggplot(mapping = aes(x = neighbourhood_group, y = number_of_reviews)) +
+      geom_boxplot(),
+  # room_type and number_of_reviews
+  fp %>% 
+    ggplot(mapping = aes(x = room_type, y = number_of_reviews)) +
+      geom_boxplot(),
+  
+  # neighbourhood_group and reviews_per_month
+  fp %>% 
+    ggplot(mapping = aes(x = neighbourhood_group, y = reviews_per_month)) +
+      geom_boxplot(),
+  # room_type and reviews_per_month
+  fp %>% 
+    ggplot(mapping = aes(x = room_type, y = reviews_per_month)) +
+      geom_boxplot(),
+  
+ncol = 2
+)
+
+```
+<h4>Comments</h4>
+<div>
+- 
+</div>
+
+
+
+```{r}
+fp %>%
+  group_by(neighbourhood_group, room_type) %>% 
+  summarise(med_price = median(price)) %>% 
+  ggplot(aes(neighbourhood_group, room_type)) +
+  geom_tile(aes(fill = med_price))
+
+```
+
+
+
+```{r}
+fp %>%
+  group_by(neighbourhood_group, room_type) %>% 
+  summarise(med_nights = median(minimum_nights)) %>% 
+  ggplot(aes(neighbourhood_group, room_type)) +
+  geom_tile(aes(fill = med_nights))
+```
+```{r}
+fp %>%
+  group_by(neighbourhood_group, room_type) %>% 
+  summarise(med_reviews = median(number_of_reviews)) %>% 
+  ggplot(aes(neighbourhood_group, room_type)) +
+  geom_tile(aes(fill = med_reviews))
+```
+
+
+```{r}
+fp %>%
+  group_by(neighbourhood_group, room_type) %>% 
+  summarise(med_month_reviews = median(reviews_per_month)) %>% 
+  ggplot(aes(neighbourhood_group, room_type)) +
+  geom_tile(aes(fill = med_month_reviews))
+```
+
+```{r}
+fp %>%
+  group_by(neighbourhood_group, room_type) %>% 
+  summarise(med_lists = median(calculated_host_listings_count)) %>% 
+  ggplot(aes(neighbourhood_group, room_type)) +
+  geom_tile(aes(fill = med_lists))
+```
+<h4>Comments</h4>
+<div>
+- Manhattan's Entire home is the most expensive median, but number of reviews of Manhattan's entire place has one of the lowest. 
+</div>
+
+
+<h4>Questions</h4>
+<div>
+- What makes some housing list extremely expensive?
+- More investigation on the map
+- More investigation on the top neighbourhood characteristics
+</div>
+
+
+
+<h2>Detailed EDA </h2>
+What is the price distribution?
+```{r}
+ggplot(fp, aes(price)) +
+  geom_histogram(bins = 30, aes(y = ..density..)) + 
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = mean(fp$price), size = 2, linetype = 3) +
+  annotate("text", x = 1800, y = 0.75,label = paste("Mean price = ", paste0(round(mean(fp$price), 2))),
+           color =  "#32CD32", size = 8) +
+  scale_x_log10(breaks = seq(0, 10000, 100))
+
+```
+<h4>Comments</h4>
+<div>
+- How about by the neighbourhood_groups?
+</div>
+
+
+```{r}
+neighbor_mean <- fp %>%
+  group_by(neighbourhood_group) %>%
+  summarise(price = round(mean(price), 2))
+
+ggplot(fp, aes(price)) +
+  geom_histogram(bins = 30, aes(y = ..density..)) + 
+  geom_density(alpha = 0.2) +
+  ggtitle("Transformed distribution of price\n by neighbourhood groups",
+          subtitle = expression("With" ~'log'[10] ~ "transformation of x-axis")) +
+  geom_vline(data = neighbor_mean, aes(xintercept = price), size = 2, linetype = 3) +
+  geom_text(data = neighbor_mean,y = 1.5, aes(x = price + 1400, label = paste("Mean  = ",price)), color = "darkgreen", size = 4) +
+  facet_wrap(~neighbourhood_group) +
+  scale_x_log10() 
+
+```
+<h4>Comments</h4>
+<div>
+- We can see all the neighbourhood_group have skewed mean even when applying log transformation
+- Manhattan has highest mean of 214.2
+</div>
+
+
+```{r}
+fp %>% filter(price >= mean(price)) %>% group_by(neighbourhood_group, room_type) %>% tally %>% 
+  ggplot(aes(reorder(neighbourhood_group,desc(n)), n, fill = room_type)) +
+  xlab(NULL) +
+  ylab(NULL) +
+  ggtitle("Number of above average price listings",
+          subtitle = "Most of them are entire homes or apartments") +
+           geom_bar(stat = "identity")
+
+```
+<h4>Comments</h4>
+<div>
+- Visually I cannot see anything Shared room over the average
+- remember except Manhattan, all the neighbourhood_group have more private room
+- However, for the price above average, there are more entire home consisted
+- Entire home can create 
+</div>
+
+More interested in room_type
+```{r}
+fp %>%
+  group_by(neighbourhood_group) %>%
+    ggplot(aes(x = room_type, y = price)) +
+      geom_boxplot(aes(fill = room_type)) + scale_y_log10() +
+      xlab("Room type") + 
+      ylab("Price") +
+      ggtitle("Boxplots of price by room type",
+              subtitle = "Entire homes and apartments have the highest avg price") +
+      geom_hline(yintercept = mean(fp$price), color = "purple", linetype = 2)
+
+```
+
+How does it look like with median of room_type and neighbourhood
+```{r}
+# Median of price by Room type
+med_price <- fp %>% group_by(neighbourhood_group, room_type) %>% summarise(med_price = median(price ), n = n())
+med_price %>% ggplot(aes(x = neighbourhood_group, y = med_price, fill = paste(room_type))) + 
+  geom_bar(stat = 'identity', position = 'dodge')  
+```
+
+```{r}
+# Median of minimum_nights by Room type
+med_nights <- fp %>% group_by(neighbourhood_group, room_type) %>% summarise(med_night = mean(minimum_nights),n = n())
+med_nights %>% ggplot(aes(x = neighbourhood_group, y = med_night, fill = paste(room_type))) + 
+  geom_bar(stat = 'identity', position = 'dodge')  
+```
+
+```{r}
+# Median of minimum cost (price*minimum_nights)s by Room type
+med_min_spend <- fp %>% group_by(neighbourhood_group, room_type) %>% summarise(med_cost = median(price * minimum_nights),n = n())
+med_min_spend %>% ggplot(aes(x = reorder(neighbourhood_group, -med_cost), y = med_cost, fill = paste(room_type))) + 
+  geom_bar(stat = 'identity', position = 'dodge')+
+  labs(x ="", y="", title = "Entire Room listings of Manhattan's minimum spending is outstanding", subtitle = "About double as Brooklyn's entire home", caption = "From Technical Appendix") +
+  theme_classic() +
+  theme(legend.title = element_blank(),
+        legend.position = "bottom") +
+  scale_y_continuous(breaks = seq(0, 900,200), labels = scales::dollar) +
+  scale_fill_discrete_qualitative(palette = "Cold") +
+  ggsave("min_spend.png")
+
+```
+<h4>Comments</h4>
+<div>
+- as assumed, the manhattan's Entire room has the highest median
+- Manhattan's private room is cheaper than other neighbourhood_group's Entire home
+- Shared room in Staten Island is surprisingly more expensive than the private room median
+- It looks Private room to Shared room does not have much decrease in median revenue 
+</div>
+<br>
+Let's see it on the map
+```{r}
+fp %>% 
+  ggplot(aes(longitude, latitude)) + 
+  geom_hex() + 
+  scale_fill_gradient(low = 'yellow', high = 'red', breaks = c(500, 1000)) + 
+  labs(x = 'Longitude', y = 'Latitude') + 
+  facet_wrap(~ room_type) + 
+  theme(legend.position = 'bottom')
+```
+<h4>Comments</h4>
+<div>
+- It is hard to even see the Shared room whereas Entire home and private room are located mostly in Manhattan area and Brooklyn
+</div>
+Median price by neighbourhood
+```{r}
+neighbour_median <- fp %>%
+  group_by(neighbourhood) %>%
+  summarise(median(price))
+colnames(neighbour_median)[2] <- "med_price_neighbour"
+fp_subset <- merge(fp, neighbour_median)
+```
+
+```{r}
+staten$neighbourhood[staten$price == 800]
+```
+
+
+```{r}
+fp_subset <- subset(fp_subset, neighbourhood != "Fort Wadsworth")
+save_p_1 <- ggmap(get_googlemap(center = c(lon = -73.95, lat = 40.72),
+                    zoom = 11, scale = 4,
+                    maptype ='terrain',
+                    color = 'color')) +
+  geom_point(aes(x = longitude, y = latitude,  colour = med_price_neighbour), data = fp_subset, size = 0.1) + 
+  scale_colour_gradientn(colours = rainbow(3)) +
+  labs(x = "", y = "", title = "Lower Manhattan has the highest central tendency of price ", subtitle = "Surprisingly Upper East/West side and Brooklyn seem to be similar in price range", caption = "From Technical Appendix", col="Price Range in USD") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank()
+        )
+save_p_1
+ggsave(filename = "geo.png", plot = save_p_1)
+
+```
+<h4>Comments</h4>
+<div>
+- Financial district to midtown has higher price range compared to the upper east/west side and northern area of manhattan
+- There is one blue spot (highest median price) in Staten Island 
+</div>
+
+
+```{r}
+
+pal <- colorNumeric(
+  palette = "Blues",
+  domain = fp$med_price_neighbour)
+
+leaflet(options = leafletOptions(minZoom = 0, maxZoom = 18)) %>% 
+  setView(lng = -73.95, lat = 40.72, zoom = 12)  %>% 
+    addMarkers(data = fp, lat = ~ latitude, lng = ~ longitude, clusterOptions = markerClusterOptions(), label = ~htmlEscape(name), 
+               popup = paste("Price per night: $", fp$price, "<br>",
+                           "Room Type:", fp$room_type, "<br>",
+                           "Minimum Stay:", fp$minimum_nights, "days<br>", 
+                           "Minimum Cost for stay: $", fp$minimum_nights * fp$price, "<br>",
+                           "Monthly Average Number of Reviews: ", fp$reviews_per_month)
+               ) %>% 
+  addTiles() 
+
+
+
+```
+<h4>Comments</h4>
+<div>
+- Usuful for the dashboard
+</div>
+
+
+<h2>Stats EDA </h2>
+Does Room_type impact the price?
+```{r}
+(t <- t.test(fp$price[fp$room_type == 'Entire home/apt'], fp$price[fp$room_type == 'Private room' ], conf.level = 0.95))
+```
+```{r}
+(t <- t.test(fp$price[fp$room_type == 'Entire home/apt'], fp$price[fp$room_type == 'Shared room' ], conf.level = 0.95))
+```
+
+```{r}
+(t <- t.test(fp$price[fp$room_type == 'Private room'], fp$price[fp$room_type == 'Shared room' ], conf.level = 0.95))
+```
+<h4>Comments</h4>
+<div>
+- reject the null hypothesis that the room type does not impact the price
+</div>
+
+
+```{r}
+z <- qnorm(0.975) #95 percent
+
+fp %>%
+  group_by(room_type) %>%
+  summarise(mn = mean(price), sd = sd(price), n = n(), ci = z * sd/sqrt(n)) %>%
+  ggplot(aes(x = room_type, y = mn)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = mn - ci, ymax = mn + ci), width = 0.5, position = position_dodge(0.9)) +
+  labs(title = "Price difference by Room type with error bar")
+
+```
+
+
+```{r}
+chisq.test(table(fp$neighbourhood_group, fp$room_type))
+
+```
+<h4>Comments</h4>
+<div>
+- X-square is large,so reject the null
+- P-value is small, so reject the null
+- According to the test,we cannot see what is different and what is similar
+</div>
+
+
+How do neighbourhood_group's listing price vary with room_type
+```{r}
+C_P_n <- fp %>%
+  group_by(neighbourhood_group, room_type) %>%
+  summarise(n = n())
+
+C_P_n_ci <- multinomialCI(t(C_P_n[, 3]), 0.05)
+
+C_P_tab <- fp %>%
+  group_by(neighbourhood_group, room_type) %>%
+  summarise(prop = round(n()/sum(nrow(fp)), 3))
+
+C_P_tab$ci_l <- round(C_P_n_ci[,1], 3)
+C_P_tab$ci_u <- round(C_P_n_ci[,2], 3)
+
+htmlTable(C_P_tab)
+
+```
+```{r}
+# Graph of proportions with confidence intervals
+C_P_tab %>% 
+  ggplot(aes(x = room_type, y = prop, fill = neighbourhood_group)) +
+  geom_bar(stat="identity", position = "dodge") +
+  geom_text(aes(label = round(prop, 2)), vjust = -4, color = "black", # vjust moves lables above CI
+            position = position_dodge(0.9), size = 4) +
+  geom_errorbar(aes(ymin = ci_l, ymax = ci_u), 
+                width = 0.4, position = position_dodge(0.9))
+
+```
+<h4>Comments</h4>
+<div>
+- Proprotionally Manhattan, Brooklyn and Queens are more reliable in any room_type 
+</div>
+
+
+Significance of Correlation
+```{r}
+fp %>% 
+  select_if(is.numeric) %>% 
+  as.matrix() %>% 
+  rcorr()
+```
+Multi-linear regression
+```{r}
+
+# logistic regression with general linear model (glm)
+mod <- glm(factor(price) ~ neighbourhood_group + room_type + minimum_nights + number_of_reviews + availability_365, 
+           family = binomial(link='logit'), 
+           data = fp)
+
+# Review output
+summary(mod)
+
+```
+<h4>Comments</h4>
+<div>
+- Manhattan, Brooklyn has more impact on price
+</div>
+
+Residuals of the model
+```{r}
+par(mfrow = c(1, 1))
+# price
+plot(fp$price, mod$residuals)
+
+```
+```{r}
+# neighbourhood_group
+plot(fp$neighbourhood_group, mod$residuals)
+```
+```{r}
+# neighbourhood
+plot(fp$neighbourhood, mod$residuals)
+```
+```{r}
+# room_type
+plot(fp$room_type, mod$residuals)
+```
+
+```{r}
+# minimum_nights
+plot(fp$minimum_nights, mod$residuals)
+```
+```{r}
+# number_of_reviews
+plot(fp$number_of_reviews, mod$residuals)
+```
+
+Visualization of Multiple Regression
+```{r}
+coe <- summary(mod)$coefficients # get coefficients and related stats
+coe_CI <- as.data.frame(cbind(coe[-1, ], confint(mod)[-1, ])) # find and bind CI, remove Intercept 
+
+names(coe_CI) <- c("estimate", "se", "t", "pval","low_CI","high_CI") 
+
+# Order base on p-value
+htmlTable(round(coe_CI[order(coe_CI$pval, decreasing = FALSE), ], 3))
+```
+```{r}
+# reorder by p-value
+(g1 <- ggplot(coe_CI, aes(x = estimate, y = reorder(row.names(coe_CI),desc(pval)))) +
+  geom_point(size = 3) +
+  xlim(min(coe_CI$low_CI), max(coe_CI$high_CI)) +
+  ylab("Variable") +
+  xlab("Coefficient") +
+  theme_bw() 
+)
+
+```
+```{r}
+# Use geom_segment to illustrate CI
+(g2 <- g1 +
+  geom_vline(xintercept = 0, color = "red")) +
+  geom_segment(aes(yend = reorder(row.names(coe_CI),desc(pval))), 
+               xend = coe_CI$high_CI, color = "Blue") +
+  geom_segment(aes(yend = reorder(row.names(coe_CI),desc(coe_CI$pval))), 
+               xend = coe_CI$low_CI, color = "Blue") +
+  xlab("Coefficient with Confidence Interval") 
+
+```
+<div>
+- Shared Room(room_type) and Staten Island (neighbourhood_group) have interesting confidence interval
+- in the non-graphical, we cannot see the upper bound of confidence interval for those two
+</div>
+
+
+<h2>Summary</h2>
+<h4>Comments</h4>
+<div>
+- Manhattan has the highest price with Entire home/apartment
+  - Manhattan's Entire home/apartment's minimum spending is extremely higher than the other neighbourhood in new york
+- From the map, particularily Brooklyn area is high as in upper manhattan
+- Problems on the data
+  - does not have the size of listing's living area
+  - more detail information may be required to get in order to do more investigation
+</div>
+
+
+
+
+
