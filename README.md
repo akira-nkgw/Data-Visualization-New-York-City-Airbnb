@@ -2,7 +2,7 @@
 Data visualization of Airbnb data in New York City. 
 
 ### Project Intro/Objective
-The purpose of this project is to understand Airbnb listing and . 
+The purpose of this project is to understand Airbnb listings in New York City and make a suggestion to the hotel industry. 
 The Data was taken snapshoot in 2018. The data file in the repository is "AB_NYC_2019.csv". Primary source for this data is Kaggle the link below.
 https://www.kaggle.com/dgomonov/new-york-city-airbnb-open-data
 
